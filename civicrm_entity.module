@@ -301,6 +301,7 @@ function _civicrm_entity_enabled_entities() {
     'civicrm_entity_tag' => 'entity_tag',
     'civicrm_membership' => 'membership',
     'civicrm_group' => 'group',
+    'civicrm_address' => 'address',
   );
 }
 
@@ -328,6 +329,7 @@ function _civicrm_entity_labels($entity) {
     'civicrm_entity_tag' => 'tag_id', // OK I'm just putting in something that won't error for now
     'civicrm_membership' => 'id', // ditto
     'civicrm_group'=> 'name',
+    'civicrm_address' => 'name',
   );
   return $labels[$entity];
 }
@@ -342,6 +344,49 @@ function _civicrm_entity_getproperties($civicrm_entity, $context = '') {
     $info['civi_user'] = array(
       'label' => 'Drupal User',
       'type' => 'user'
+    );
+    $info['primary_address'] = array (
+      'label' => 'Primary Address',
+      'type' => 'civicrm_address',
+      'getter callback' => 'civicrm_entity_address_get',
+      'property_info' => array (
+        'field' => 'id',
+        'foreign' => 'contact_id',
+        'entity' => 'address',
+      ),
+      'conditions' => array (
+        'is_primary' => '1',
+      ),
+    );
+  } else if ($civicrm_entity == 'address') {
+    $info['state_province'] = array (
+      'label' => $info['state_province_id']['label'],
+      'type' => 'text',
+      'getter callback' => 'civicrm_entity_constant_get',
+      'property_info' => array (
+        'name' => 'stateProvince',
+        'id' => 'state_province_id',
+      ),
+    );
+
+    $info['state_province_abbreviation'] = array (
+      'label' => $info['state_province_id']['label'],
+      'type' => 'text',
+      'getter callback' => 'civicrm_entity_constant_get',
+      'property_info' => array (
+        'name' => 'stateProvinceAbbreviation',
+        'id' => 'state_province_id',
+      ),
+    );
+
+    $info['country'] = array (
+      'label' => 'Country',
+      'type' => 'text',
+      'getter callback' => 'civicrm_entity_constant_get',
+      'property_info' => array (
+        'name' => 'country',
+        'id' => 'country_id',
+      ),
     );
   }
   $fields = civicrm_api($civicrm_entity, 'getfields', array(
@@ -424,6 +469,37 @@ function civicrm_entity_($entity) {
   return array(
     'path' => "civicrm-entity-$entity/" . $entity->id
   );
+}
+
+function civicrm_entity_address_get($data, $options, $name, $type, $info) {
+  $entity = civicrm_api('Address', 'get', array (
+              'version' => 3,
+              $info['property_info']['foreign'] => $data->$info['property_info']['field'],
+              'sequential' => 1,
+            ) + $info['conditions']);
+
+  return (object) $entity['values'][0];
+}
+
+function civicrm_entity_constant_get($data, $options, $name, $type, $info) {
+  $cv_constants = &drupal_static(__FUNCTION__);
+
+  if ($cv_constants == NULL)
+    $cv_constants = array();
+
+  $prop_name = $info['property_info']['name'];
+
+  if(isset($cv_constant[$prop_name])){
+    return $cv_constant[$prop_name];
+  }
+  $entity = civicrm_api('Constant', 'get', array (
+              'version' => 3,
+              'name' => $prop_name,
+              'sequential' => 0,
+            ));
+
+  $cv_constant[$prop_name] = $entity['values'][$data->{$info['property_info']['id']}];
+  return $cv_constant[$prop_name];
 }
 
 /*
