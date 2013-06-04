@@ -461,6 +461,28 @@ function _civicrm_entity_getproperties($civicrm_entity, $context = '') {
           $info[$fieldname]['property defaults']['options list'] = $field_specs['options'];
         }
       }
+    } else if (!strncmp($fieldname, 'custom_', 7)){
+      $custom_id = substr($fieldname, 7);
+      $cfield_specs = civicrm_api('CustomField', 'getsingle',  array (
+                             'version' => '3',
+                             'id' => $custom_id,
+                           ));
+      if (!empty($cfield_specs['name'])){
+        $fieldname = strtolower($cfield_specs['name']);
+      }
+      $field_type = civicrm_entity_custom_type(
+          $cfield_specs['data_type'],
+          $cfield_specs['html_type']
+      );
+      $info[$fieldname] = array (
+        'label' => $cfield_specs['label'],
+        'type' => $field_type,
+        'property_info' => array (
+          'custom_field_id' => $cfield_specs['id'],
+          'custom_group_id' => $cfield_specs['custom_group_id'],
+        ),
+        'getter callback' => 'civicrm_entity_custom_get',
+      );
     }
   }
   return $info;
@@ -479,6 +501,57 @@ function civicrm_entity_address_get($data, $options, $name, $type, $info) {
             ) + $info['conditions']);
 
   return (object) $entity['values'][0];
+}
+
+function civicrm_entity_custom_type($data_type, $html_type) {
+  $entity_type = '';
+
+  switch ($data_type) {
+    case 'Boolean':
+    case 'Int':
+      $entity_type = 'integer';
+      break;
+    case 'Float':
+    case 'Money':
+      $entity_type = 'decimal';
+    default:
+      $entity_type = 'text';
+      break;
+  }
+
+  switch ($html_type) {
+    case 'AdvMulti-Select':
+    case 'Multi-Select':
+    case 'CheckBox':
+      $entity_type = "list<{$entity_type}>";
+      break;
+  }
+
+  return $entity_type;
+}
+
+function civicrm_entity_custom_get($data, $options, $name, $type, $info) {
+  $cv_custom = &drupal_static(__FUNCTION__); //seems to cause redeclaration errors;
+
+  if ($cv_custom == NULL)
+    $cv_custom = array();
+
+  if (!array_key_exists($data->id, $cv_custom)) {
+
+    $entity = civicrm_api(
+      'CustomValue', 'get', array (
+        'version' => 3,
+        'entity_id' => $data->id,
+      ));
+
+    $cv_custom[$data->id] = $entity['values'];
+  }
+
+  $retval = isset($cv_custom[$data->id][$info['property_info']['custom_field_id']]['latest'])?
+    $cv_custom[$data->id][$info['property_info']['custom_field_id']]['latest'] :
+    NULL;
+
+  return $retval;
 }
 
 function civicrm_entity_constant_get($data, $options, $name, $type, $info) {
