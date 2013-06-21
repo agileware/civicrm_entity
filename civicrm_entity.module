@@ -171,12 +171,22 @@ function civicrm_entity_get_field_type($field_spec){
       );
     case CRM_Utils_Type::T_TEXT :
     case CRM_Utils_Type::T_STRING :
-    case CRM_Utils_Type::T_LONGTEXT :
     case CRM_Utils_Type::T_CCNUM :
     case CRM_Utils_Type::T_EMAIL :
     case CRM_Utils_Type::T_URL :
       return array(
         'type' => 'text'
+      );
+    case CRM_Utils_Type::T_LONGTEXT :
+      $formatters = array();
+      foreach(filter_formats() as $format){
+        $formatters[$format->format] = $format->name;
+      }
+      return array(
+        'type' => 'text',
+        'properties' => array (
+          'formatters' => $formatters,
+        ),
       );
     case CRM_Utils_Type::T_DATE :
     case CRM_Utils_Type::T_TIME :
@@ -311,6 +321,7 @@ function _civicrm_entity_chained_fks(){
       'CRM_Event_DAO_Event' => 'event',
     );
 }
+
 /*
  * OK v basic version of what the 'label' should be for each of these tables
  * we can & probably should create a call back function
@@ -357,37 +368,7 @@ function _civicrm_entity_getproperties($civicrm_entity, $context = '') {
       'conditions' => array (
         'is_primary' => '1',
       ),
-    );
-  } else if ($civicrm_entity == 'address') {
-    $info['state_province'] = array (
-      'label' => $info['state_province_id']['label'],
-      'type' => 'text',
-      'getter callback' => 'civicrm_entity_constant_get',
-      'property_info' => array (
-        'name' => 'stateProvince',
-        'id' => 'state_province_id',
-      ),
-    );
-
-    $info['state_province_abbreviation'] = array (
-      'label' => $info['state_province_id']['label'],
-      'type' => 'text',
-      'getter callback' => 'civicrm_entity_constant_get',
-      'property_info' => array (
-        'name' => 'stateProvinceAbbreviation',
-        'id' => 'state_province_id',
-      ),
-    );
-
-    $info['country'] = array (
-      'label' => 'Country',
-      'type' => 'text',
-      'getter callback' => 'civicrm_entity_constant_get',
-      'property_info' => array (
-        'name' => 'country',
-        'id' => 'country_id',
-      ),
-    );
+      );
   }
   $fields = civicrm_api($civicrm_entity, 'getfields', array(
     'version' => 3,
@@ -483,14 +464,65 @@ function _civicrm_entity_getproperties($civicrm_entity, $context = '') {
         ),
         'getter callback' => 'civicrm_entity_custom_get',
       );
+      if ($cfield_specs['data_type'] == 'Memo') {
+        $info[$fieldname]['property_info']['filter'] = TRUE;
+      }
     }
   }
+
+  /*if ($civicrm_entity == 'address') {
+    $info['state_province'] = array (
+      'label' => $info['state_province_id']['label'],
+      'type' => 'text',
+      'getter callback' => 'civicrm_entity_constant_get',
+      'property_info' => array (
+        'name' => 'stateProvince',
+        'id' => 'state_province_id',
+      ),
+    );
+
+    $info['state_province_abbreviation'] = array (
+      'label' => $info['state_province_id']['label'],
+      'type' => 'text',
+      'getter callback' => 'civicrm_entity_constant_get',
+      'property_info' => array (
+        'name' => 'stateProvinceAbbreviation',
+        'id' => 'state_province_id',
+      ),
+    );
+
+    $info['country'] = array (
+      'label' => 'Country',
+      'type' => 'text',
+      'getter callback' => 'civicrm_entity_constant_get',
+      'property_info' => array (
+        'name' => 'country',
+        'id' => 'country_id',
+      ),
+    );
+    }*/
+
   return $info;
 }
 function civicrm_entity_($entity) {
   return array(
     'path' => "civicrm-entity-$entity/" . $entity->id
   );
+}
+
+function civicrm_entity_address_get_list($data, $options, $name, $type, $info) {
+  $entity = civicrm_api('Address', 'get', array(
+              'version' => 3,
+              'contact_id' => $data->id,
+              'sequential' => 1
+            ));
+  $addresses = array();
+
+  foreach($entity['values'] as $value){
+    $addresses[] = (object) $value;
+  }
+
+  return $addresses;
 }
 
 function civicrm_entity_address_get($data, $options, $name, $type, $info) {
@@ -500,7 +532,7 @@ function civicrm_entity_address_get($data, $options, $name, $type, $info) {
               'sequential' => 1,
             ) + $info['conditions']);
 
-  return (object) $entity['values'][0];
+  return !empty($entity['values'])? (object) $entity['values'][0] : NULL;
 }
 
 function civicrm_entity_custom_type($data_type, $html_type) {
@@ -508,6 +540,8 @@ function civicrm_entity_custom_type($data_type, $html_type) {
 
   switch ($data_type) {
     case 'Boolean':
+      $entity_type = 'boolean';
+      break;
     case 'Int':
       $entity_type = 'integer';
       break;
@@ -551,6 +585,10 @@ function civicrm_entity_custom_get($data, $options, $name, $type, $info) {
     $cv_custom[$data->id][$info['property_info']['custom_field_id']]['latest'] :
     NULL;
 
+  if (!$retval && strpos($info['type'], 'list<') === 0){
+    $retval = array();
+  }
+
   return $retval;
 }
 
@@ -584,9 +622,14 @@ function civicrm_entity_constant_get($data, $options, $name, $type, $info) {
 function civicrm_entity_metadata_civicrm_entity_get_properties($data, $options, $name, $type, $info) {
   $entity = civicrm_api($info['property_info']['entity'], 'get', array(
     'version' => 3,
-    'id' => $data->$info['property_info']['field'],
+    'id' => $data->{$info['property_info']['field']},
     'sequential' => 1
   ));
+
+  if ($info['property_info']['entity'] == 'country') {
+    dpm($entity);
+  }
+
   return (object) $entity['values'][0];
 }
 
@@ -807,6 +850,7 @@ class CivicrmEntityController extends EntityAPIController {
     if(!civicrm_initialize(TRUE)){
       return;
     }
+
   // not sure about revisioning out at this stage - I don't know if it could have any later use
     // Revisions are not statically cached, and require a different query to
     // other conditions, so separate the revision id into its own variable.
